@@ -1,0 +1,12 @@
+[project]
+name = "rashomon-fairness"
+version = "0.1.0"
+description = "The Rashomon effect in learning to rank problems"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jax>=0.10.2",
+    "matplotlib>=3.11.0",
+    "seaborn>=0.13.2",
+    "tyro>=1.0.15",
+]
