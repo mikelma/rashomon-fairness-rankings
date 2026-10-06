@@ -2,11 +2,10 @@ import tyro
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from dataclasses import dataclass
+import matplotlib
+from dataclasses import dataclass, field
 import itertools
 from functools import partial
-import seaborn as sns
 
 
 @dataclass
@@ -15,13 +14,14 @@ class Args:
 
     k: int = 3
     n: int = 5
-    eps: float = 0.1
 
     num_samples: int = 100
+
+    eps_range: list[float] = field(default_factory=lambda: [0.0, 1.0])
+    num_eps: int = 5
+
     max_std: float = 10.0
     num_std: int = 10
-
-    annot: bool = False
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -31,7 +31,7 @@ def generate_rashomon_set(
     ident = jnp.full(n, False)
 
     def _compute_margin(top_k):
-        top_k = jnp.array(top_k)
+        # top_k = jnp.array(top_k)
         mask_top_k = ident.at[top_k].set(True)
         mask_opt_k = ident.at[opt_top_k].set(True)
 
@@ -55,49 +55,59 @@ def generate_rashomon_set(
     return margins <= eps, margins
 
 
-@partial(jax.jit, static_argnums=(1,))
-def rashomon_set_size(
-    all_top_k: jax.Array, n: int, eps: float, scores: jax.Array, opt_top_k: jax.Array
+def batched_rset_sizes(
+    batched_scores: jax.Array,
+    batched_eps: jax.Array,
+    opt_top_k: jax.Array,
+    all_top_ks: jax.Array,
+    n: int,
 ):
-    rset, margins = generate_rashomon_set(
-        all_top_k=all_top_k,
-        n=n,
-        scores=scores,
-        opt_top_k=opt_top_k,
-        eps=eps,
-    )
-    return rset.sum(), margins
+    def map_over_eps(eps):
+        def map_over_std(scores, opt_k):
+            # dims: (num_samples, num_top_ks)
+            rset, margs = jax.vmap(
+                generate_rashomon_set, in_axes=(None, None, 0, 0, None)
+            )(all_top_ks, n, scores, opt_k, eps)
+            # jax.debug.print(
+            #     "rset: {r}\nmargs: {m}\nscores: {s}", r=rset, m=margs, s=scores
+            # )
+            return rset.sum(-1)
+
+        return jax.vmap(map_over_std)(batched_scores, opt_top_k)
+
+    return jax.vmap(map_over_eps)(batched_eps)
 
 
-def rset_sizes_from_margins(
-    margins: jax.Array, eps_lst: jax.Array, num_top_k: int, num_stds: int
-):
-    """
-    Args:
-    -----
-    - margins: a (num_samples, num_top_k) shaped array
-    - eps_lst: list of different epsilon values to try
+# @partial(jax.jit, static_argnums=(1,))
+# def rashomon_set_size(
+#     all_top_k: jax.Array, n: int, eps: float, scores: jax.Array, opt_top_k: jax.Array
+# ):
+#     rset, margins = generate_rashomon_set(
+#         all_top_k=all_top_k,
+#         n=n,
+#         scores=scores,
+#         opt_top_k=opt_top_k,
+#         eps=eps,
+#     )
+#     return rset.sum(), margins
 
-    Returns:
-    --------
-    A tensor (eps_lst.shape[0], num_std, num_top_k) where
-    each ijk value counts the number of rashomon sets of size k for
-    std j and epsilon i.
-    """
 
-    def compute_sizes(eps):
-        rset_sizes = (margins <= eps).sum(-1)
+# def batched_rset_sizes(
+#     batched_scores: jax.Array, batched_eps: jax.Array, optimal_top_ks: jax.Array, n: int
+# ):
+#     def _size_for_eps(eps):
+#         rset_size, _margins = jax.vmap(
+#             partial(
+#                 rashomon_set_size,
+#                 optimal_top_ks,
+#                 n,
+#                 eps,
+#             )
+#         )(batched_scores, optimal_top_ks)
+#         return rset_size
 
-        # compute a matrix where each ij value is: for a variance i which
-        # is the number of times a rashomon set of size j appears
-        mat = jax.vmap(partial(jnp.bincount, length=num_top_k + 1))(
-            rset_sizes.reshape(num_stds, -1)
-        )
-        mat = mat[:, 1:]
-        return mat
-
-    mats = jax.vmap(compute_sizes)(eps_lst)
-    return mats
+#     batched_sizes = jax.vmap(_size_for_eps)(batched_eps)
+#     return batched_sizes
 
 
 def main():
@@ -117,90 +127,73 @@ def main():
     # true_scores = jnp.ones(args.n)
     # true_scores = true_scores.at[:2].set(0.1)
     # -------------------------------------------------- #
-    scores = jax.random.normal(_key, (args.num_samples, args.n))
-    assert args.num_samples % args.num_std == 0, (
-        "The number samples must be dividable by the number of std values"
-    )
-    repeat = args.num_samples // args.num_std
+    scores = jax.random.normal(_key, (args.num_std, args.num_samples, args.n))
+    # scores = jnp.abs(scores)
     std = jnp.linspace(0, args.max_std, num=args.num_std)
-    stds = std.repeat(repeat, -1)
-    scores *= stds.reshape(-1, 1)
-    scores = jnp.abs(scores)
+    scores *= std.reshape(-1, 1, 1)
+    # dims: (num_std, num_samples, K)
+    optimal_top_ks = jnp.argsort(scores, axis=-1)[:, :, : args.k]
 
-    optimal_top_ks = jnp.argsort(scores)[:, : args.k]
+    print("scores:", scores.shape)
+    print("optimal_top_ks:", optimal_top_ks.shape)
 
     all_top_k = jnp.asarray(list(itertools.combinations(range(args.n), args.k)))
     num_top_k = all_top_k.shape[0]
     print("Total number of top-k vectors:", num_top_k)
 
-    rset_size, margins = jax.vmap(
-        partial(
-            rashomon_set_size,
-            all_top_k,
-            args.n,
-            args.eps,
+    batched_epsilon = jnp.linspace(
+        args.eps_range[0], args.eps_range[1], num=args.num_eps
+    )
+    print("batched_epsilon:", batched_epsilon.shape)
+
+    # dims: (num_eps, num_std, num_samples)
+    # batched_sizes = batched_rset_sizes(
+    #     scores, batched_epsilon, optimal_top_ks, all_top_k, args.n
+    # )
+
+    batched_sizes = batched_rset_sizes(
+        batched_scores=scores,
+        batched_eps=batched_epsilon,
+        opt_top_k=optimal_top_ks,
+        all_top_ks=all_top_k,
+        n=args.n,
+    )
+    # print(batched_sizes.shape)
+    # quit()
+
+    # # dims: (num_eps, num_samples)
+    # batched_sizes = batched_rset_sizes(
+    #     batched_scores=scores,
+    #     batched_eps=batched_epsilon,
+    #     optimal_top_ks=optimal_top_ks,
+    #     n=args.n,
+    # )
+    # # dims (num_eps, num_samples / num_std, num_std)
+    # batched_sizes = batched_sizes.reshape(batched_epsilon.shape[0], args.num_std, -1)
+
+    batched_means = batched_sizes.mean(-1)
+    batched_stds = batched_sizes.std(-1)
+
+    matplotlib.rcParams.update({"font.size": 16})
+
+    for i in range(args.num_eps):
+        mean = batched_means[i]
+        std_dev = batched_stds[i]
+        eps = batched_epsilon[i]
+        print(mean.shape, std_dev.shape)
+
+        plt.plot(std, mean, label=f"{round(float(eps), 3)}")
+        plt.fill_between(
+            std,
+            mean - std_dev,
+            mean + std_dev,
+            alpha=0.3,
         )
-    )(scores, optimal_top_ks)
 
-    # ---------------------------------------------- #
-    eps_lst = jnp.linspace(0.001, 1, num=20)
-    # dims: (eps_lst.shape[0], num_std, num_top_k)
-    sizes = rset_sizes_from_margins(
-        margins=margins, eps_lst=eps_lst, num_top_k=num_top_k, num_stds=args.num_std
-    )
-    percentages = sizes / sizes.sum(-1, keepdims=True)
-    # dims: (eps_lst.shape, num_std)
-    entropy_map = -(percentages * jnp.log(percentages + 1e-8)).sum(-1) / jnp.log(
-        percentages.shape[-1]
-    )
-    ax = plt.gca()
-    sns.heatmap(
-        entropy_map,
-        annot=args.annot,
-        cmap="Blues",
-        yticklabels=eps_lst,
-        xticklabels=std,
-        cbar_kws=dict(label="Entropy of the size vector"),
-        ax=ax,
-    )
-    ax.set_xlabel("Variance")
-    ax.set_ylabel("Epsilon")
-
-    plt.show()
-    quit()
-    # ---------------------------------------------- #
-
-    # compute a matrix where each ij value is: for a variance i which
-    # is the number of times a rashomon set of size j appears
-    mat = jax.vmap(partial(jnp.bincount, length=all_top_k.shape[0] + 1))(
-        rset_size.reshape(args.num_std, -1)
-    )
-    mat = mat[:, 1:]
-
-    fig = plt.figure()
-    gs = GridSpec(1, 2)
-    ax1 = fig.add_subplot(gs[0])
-    ax2 = fig.add_subplot(gs[1])
-
-    # mat = mat > 0.
-    sns.heatmap(
-        mat,
-        annot=args.annot,
-        cmap="Blues",
-        xticklabels=list(range(1, all_top_k.shape[0] + 1)),
-        yticklabels=std,
-        ax=ax1,
-    )
-    ax1.set_xlabel("Rashomon set size")
-    ax1.set_ylabel("Variance of the score vector")
-
-    probs = mat / mat.sum(-1).reshape(-1, 1) + 1e-7
-    entropies = -(probs * jnp.log(probs)).sum(-1) / jnp.log(std.shape[0])
-
-    ax2.plot(std, entropies)
-    ax2.set_xlabel("Variance of the score vector")
-    ax2.set_ylabel("Entropy of P(R set size)")
-
+    plt.legend(title="Epsilon")
+    plt.axhline(y=1, color="tab:grey", linestyle="dashed")
+    plt.xlabel("Standard deviation of the score distribution")
+    plt.ylabel("Size of the reshomon set")
     plt.show()
 
 
