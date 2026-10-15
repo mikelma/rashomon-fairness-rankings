@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "jax>=0.10.2",
     "matplotlib>=3.11.0",
+    "pulp[glpk,mosek]>=4.0.1",
     "seaborn>=0.13.2",
     "tyro>=1.0.15",
 ]
