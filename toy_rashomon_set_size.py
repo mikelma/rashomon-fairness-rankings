@@ -106,15 +106,21 @@ def main():
     batched_means = batched_sizes.mean(-1)
     batched_stds = batched_sizes.std(-1)
 
-    matplotlib.rcParams.update({"font.size": 16})
-
+    matplotlib.rcParams.update(
+        {
+            "font.size": 16,
+            "font.family": "serif",
+            "text.usetex": True,
+            "pdf.fonttype": 42,
+        }
+    )
     for i in range(args.num_eps):
         mean = batched_means[i]
         std_dev = batched_stds[i]
         eps = batched_epsilon[i]
         print(mean.shape, std_dev.shape)
 
-        plt.plot(std, mean, label=f"{round(float(eps), 3)}")
+        plt.plot(std, mean, label=f"{round(float(eps), 2)}")
         plt.fill_between(
             std,
             mean - std_dev,
@@ -122,10 +128,11 @@ def main():
             alpha=0.3,
         )
 
-    plt.legend(title="Epsilon")
+    plt.legend(title=r"$\epsilon$", frameon=True, fancybox=False)
     plt.axhline(y=1, color="tab:grey", linestyle="dashed")
-    plt.xlabel("Standard deviation of the score distribution")
-    plt.ylabel("Size of the reshomon set")
+    plt.xlabel("Std. dev. of the score distribution")
+    plt.ylabel(r"$|\mathcal{R}_\epsilon^K|$")
+    plt.gca().spines[["right", "top"]].set_visible(False)
     plt.show()
 
 
