@@ -2,7 +2,8 @@ import pulp as pl
 import pandas as pd
 import numpy as np
 import tyro
-from typing import Literal
+import csv
+from typing import Literal, Optional
 
 
 def main(
@@ -13,6 +14,8 @@ def main(
     sens_attr: str = "age",
     score_attr: str = "month",
     solver: Literal["mosek", "glpk"] = "mosek",
+    msg: bool = False,
+    save_csv: Optional[str] = None,
 ):
     df = pd.read_csv(dataset)
 
@@ -29,8 +32,6 @@ def main(
     lst_scores = df[score_attr][:n].values
     lst_scores = (lst_scores - lst_scores.min()) / (lst_scores.max() - lst_scores.min())
     lst_scores = 1 - lst_scores
-
-    print("scores:", lst_scores)
 
     ids = np.arange(n)
     ranking = np.argsort(-lst_scores)
@@ -85,7 +86,7 @@ def main(
     if solver == "glpk":
         stats = prob.solve(pl.GLPK())
     elif solver == "mosek":
-        mosek_solver = pl.getSolver("MOSEK", msg=True)
+        mosek_solver = pl.getSolver("MOSEK", msg=msg)
         mosek_solver.optionsDict = {}
         stats = prob.solve(mosek_solver)
 
@@ -93,53 +94,87 @@ def main(
 
     #
     # ---- Process the solution ---- #
-    #
-    print(stats)
-
-    # print()
-    # print([pl.value(v) for v in delta_plus.values()])
-    # print([pl.value(dg) for dg in delta_plus])
-    # print([pl.value(dg) for dg in delta_minus])
-    # quit()
-
-    alpha_values = [int(var.varValue) for var in alpha.values()]
+    alpha_values = [int(var.varValue) for var in alpha.values()]  # ty: ignore[invalid-argument-type]
     delta_plus_values = [var.varValue for var in delta_plus.values()]
     delta_minus_values = [var.varValue for var in delta_minus.values()]
 
-    # Print them as lists
-    print(f"\nAlpha values:      {alpha_values}")
-    print(f"Delta plus values: {delta_plus_values}")
-    print(f"Delta minus values:{delta_minus_values}")
-
     selected_ids = [i for i, val in enumerate(alpha_values) if val == 1]
-    print(f"\nIndividual IDs for original (optimal) Top-K: {opt_top_k.tolist()}")
-    print(f"Selected Individual IDs for Top-K: {selected_ids}")
-
-    print()
-    print(f"Bayes group ratio: {lst_groups[opt_top_k].mean()}")
-    print(f"Optimized group ratio: {lst_groups[np.array(selected_ids)].mean()}")
-    print(f"Target ratio (original): {np.array(group_sizes) / n}")
-
-    print()
-    print(
-        "constraint 2:",
-        sum([lst_scores[i] * (1 - alpha_values[i]) for i in in_top_k])
-        - sum([lst_scores[j] * alpha_values[j] for j in out_top_k]),
-    )
-    print()
-    print(
-        "constraint 3:",
-        [
-            (1 / k) * np.dot(group_belong[g], np.array(alpha_values))
-            - (group_sizes[g] / n)
-            for g in groups
-        ],
-    )
-
     score_bayes_top_k = lst_scores[opt_top_k].sum()
     score_new_top_k = lst_scores[np.array(selected_ids)].sum()
-    print("Utility bayes top-K:", score_bayes_top_k)
-    print("Utility new top-K:  ", score_new_top_k)
+
+    bayes_group_ratio = lst_groups[opt_top_k].mean()
+    new_group_ratio = lst_groups[np.array(selected_ids)].mean()
+    target_group_ratio = (np.array(group_sizes) / n)[1]
+
+    if msg:
+        print(stats)
+
+        # Print them as lists
+        print(f"\nAlpha values:      {alpha_values}")
+        print(f"Delta plus values: {delta_plus_values}")
+        print(f"Delta minus values:{delta_minus_values}")
+        print(f"\nIndividual IDs for original (optimal) Top-K: {opt_top_k.tolist()}")
+        print(f"Selected Individual IDs for Top-K: {selected_ids}")
+
+        print()
+        print(f"Bayes group ratio: {bayes_group_ratio}")
+        print(f"Optimized group ratio: {new_group_ratio}")
+        print(f"Target ratio (original): {target_group_ratio}")
+
+        print()
+        print(
+            "constraint 2:",
+            sum([lst_scores[i] * (1 - alpha_values[i]) for i in in_top_k])
+            - sum([lst_scores[j] * alpha_values[j] for j in out_top_k]),
+        )
+        print()
+        print(
+            "constraint 3:",
+            [
+                (1 / k) * np.dot(group_belong[g], np.array(alpha_values))
+                - (group_sizes[g] / n)
+                for g in groups
+            ],
+        )
+
+        print("Utility bayes top-K:", score_bayes_top_k)
+        print("Utility new top-K:  ", score_new_top_k)
+
+    if save_csv is not None:
+        with open(save_csv, "w") as csvfile:
+            fieldnames = [
+                "dataset",
+                "sens attr",
+                "score attr",
+                "n",
+                "k",
+                "bayes topk",
+                "new topk",
+                "bayes utility",
+                "new utility",
+                "bayes group ratio",
+                "new group ratio",
+                "target group ratio",
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "dataset": dataset,
+                    "sens attr": sens_attr,
+                    "score attr": score_attr,
+                    "n": n,
+                    "k": k,
+                    "bayes topk": opt_top_k.tolist(),
+                    "new topk": selected_ids,
+                    "bayes utility": score_bayes_top_k,
+                    "new utility": score_new_top_k,
+                    "bayes group ratio": bayes_group_ratio,
+                    "new group ratio": new_group_ratio,
+                    "target group ratio": target_group_ratio,
+                }
+            )
 
 
 if __name__ == "__main__":
