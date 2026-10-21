@@ -1,0 +1,39 @@
+import pandas as pd
+from tyro.extras import SubcommandApp
+
+app = SubcommandApp()
+
+
+@app.command()
+def compas(
+    src_csv: str = "data/compas-scores-raw.csv",
+    out_csv: str = "data/compas-processed.csv",
+):
+    df = pd.read_csv(src_csv)
+
+    df = df[
+        (df["Ethnic_Code_Text"] == "African-American")
+        | (df["Ethnic_Code_Text"] == "Caucasian")
+    ]
+
+    # get the raw scores and the IDs
+    id_scores = df.groupby("Person_ID", sort=False)["RawScore"].mean()
+    new = id_scores.reset_index()
+
+    df = df.drop_duplicates(subset="Person_ID")
+
+    # text categories to number IDs (binary in this case)
+    new["race"] = pd.Categorical(df["Ethnic_Code_Text"]).codes
+    new["sex"] = pd.Categorical(df["Sex_Code_Text"]).codes
+
+    new = new.rename(columns={"Person_ID": "id", "RawScore": "score"})
+
+    # random shuffle
+    new = new.sample(frac=1)
+    print(new)
+
+    new.to_csv(out_csv)
+
+
+if __name__ == "__main__":
+    app.cli()
