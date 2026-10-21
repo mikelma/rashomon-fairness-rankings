@@ -7,7 +7,7 @@ from typing import Literal, Optional
 
 
 def main(
-    n: int = 200,
+    n: Optional[int] = None,
     k: int = 40,
     eps: float = 0.1,
     dataset: str = "data/german_categorical-binsensitive.csv",
@@ -18,6 +18,9 @@ def main(
     save_csv: Optional[str] = None,
 ):
     df = pd.read_csv(dataset)
+
+    if n is None:
+        n = len(df)
 
     lst_groups = df[sens_attr][:n]
     num_groups = len(lst_groups.unique())
@@ -148,6 +151,7 @@ def main(
                 "score attr",
                 "n",
                 "k",
+                "eps",
                 "bayes topk",
                 "new topk",
                 "bayes utility",
@@ -166,6 +170,7 @@ def main(
                     "score attr": score_attr,
                     "n": n,
                     "k": k,
+                    "eps": eps,
                     "bayes topk": opt_top_k.tolist(),
                     "new topk": selected_ids,
                     "bayes utility": score_bayes_top_k,
