@@ -51,7 +51,7 @@ def score_distrib(
     ranking = np.argsort(-lst_scores)
 
     cols = np.array(["tab:blue", "tab:orange"])
-    groups = df[sens_attr].values
+    groups = df[sens_attr][:n].values
     colors = cols[(groups == 1).astype(int)]
 
     plt.bar(np.arange(n), lst_scores[ranking], color=colors[ranking])
@@ -73,6 +73,24 @@ def score_distrib(
     plt.xlabel("K (%)")
     plt.ylabel("Group 1 ratio")
     plt.legend()
+    plt.show()
+
+    grouped_scores = []
+    for group in np.unique(groups):
+        grouped_scores.append(lst_scores[groups == group])
+    dfs = []
+    for name, scores in [
+        ("all", lst_scores),
+        ("0", grouped_scores[0]),
+        ("1", grouped_scores[1]),
+    ]:
+        df = pd.DataFrame()
+        df["score"] = scores
+        df["group"] = name
+        dfs.append(df)
+
+    df = pd.concat(dfs)
+    sns.kdeplot(data=df, x="score", hue="group")
     plt.show()
 
 
