@@ -1,11 +1,13 @@
 import tyro
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import comb
 import matplotlib.pyplot as plt
 import matplotlib
 from dataclasses import dataclass, field
 import itertools
 from functools import partial
+from typing import Optional
 
 
 @dataclass
@@ -22,6 +24,10 @@ class Args:
 
     max_std: float = 10.0
     num_std: int = 10
+
+    bounds: bool = False
+    font_size: int = 16
+    save: Optional[str] = None
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -41,11 +47,7 @@ def generate_rashomon_set(
         opt_w = jnp.where(only_opt, scores, 0.0)
         pi_w = jnp.where(only_pi, scores, 0.0)
 
-        # ------------------------------------ #
-        #  HAU PAPERREAN BUELTA EMANDA DAGO!!  #
-        # ------------------------------------ #
-        margin = pi_w.sum() - opt_w.sum()
-        # ------------------------------------ #
+        margin = opt_w.sum() - pi_w.sum()
 
         return margin
 
@@ -73,6 +75,26 @@ def batched_rset_sizes(
     return jax.vmap(map_over_eps)(batched_eps)
 
 
+def size_bound(scores: jax.Array, eps: float, k: int):
+    n = scores.shape[0]
+
+    rank = jnp.argsort(-scores)  # Bayes ranking
+
+    gamma = scores[rank[k - 1]] - scores[rank[k]]
+
+    # when gamma == 0 we can change all K items
+    M = jnp.where(gamma == 0.0, float(k), jnp.minimum(jnp.floor(eps / gamma), k))
+
+    def _combs(m):
+        return comb(k, m) * comb(n - k, m)
+
+    kk = jnp.arange(k + 1)
+    vv = jax.vmap(_combs)(kk)
+    result = jnp.where(kk <= M, vv, 0).sum()
+
+    return result
+
+
 def main():
     args = tyro.cli(Args)
 
@@ -85,7 +107,7 @@ def main():
     scores *= std.reshape(-1, 1, 1)
 
     # dims: (num_std, num_samples, K)
-    optimal_top_ks = jnp.argsort(scores, axis=-1)[:, :, : args.k]
+    optimal_top_ks = jnp.argsort(-scores, axis=-1)[:, :, : args.k]
 
     all_top_k = jnp.asarray(list(itertools.combinations(range(args.n), args.k)))
     num_top_k = all_top_k.shape[0]
@@ -102,25 +124,44 @@ def main():
         all_top_ks=all_top_k,
         n=args.n,
     )
+    print(batched_sizes.shape)
 
     batched_means = batched_sizes.mean(-1)
     batched_stds = batched_sizes.std(-1)
 
+    # compute the theoretical upper bounds
+    print("scores:", scores.shape)
+    print("epsilons", batched_epsilon.shape)
+
+    def _batched_bound_compute(eps):
+        bounds = jax.vmap(size_bound, in_axes=(0, None, None))(
+            scores.reshape(-1, args.n), eps, args.k
+        )
+        bounds = bounds.reshape(*scores.shape[:2])
+        return bounds
+
+    # dims: (num_eps, num_std, num_samples)
+    batched_bounds = jax.vmap(_batched_bound_compute)(batched_epsilon)
+    bounds_means = batched_bounds.mean(-1)
+    bounds_stds = batched_bounds.std(-1)
+
     matplotlib.rcParams.update(
         {
-            "font.size": 16,
+            "font.size": args.font_size,
             "font.family": "serif",
             "text.usetex": True,
             "pdf.fonttype": 42,
         }
     )
+
     for i in range(args.num_eps):
         mean = batched_means[i]
         std_dev = batched_stds[i]
         eps = batched_epsilon[i]
-        print(mean.shape, std_dev.shape)
 
-        plt.plot(std, mean, label=f"{round(float(eps), 2)}")
+        bound = bounds_means[i]
+
+        line = plt.plot(std, mean, label=f"{round(float(eps), 2)}", linewidth=2)
         plt.fill_between(
             std,
             mean - std_dev,
@@ -128,11 +169,43 @@ def main():
             alpha=0.3,
         )
 
-    plt.legend(title=r"$\epsilon$", frameon=True, fancybox=False)
-    plt.axhline(y=1, color="tab:grey", linestyle="dashed")
+        if args.bounds:
+            plt.plot(
+                std, bound, linestyle="dashed", color=line[0].get_color(), linewidth=1.5
+            )
+
+    # add the upper entry to the legend
+    ub_handle = matplotlib.lines.Line2D(
+        [], [], color="black", linestyle="dashed", linewidth=1.5, label="UB"
+    )
+    handles, labels = plt.gca().get_legend_handles_labels()
+    handles.append(ub_handle)
+    labels.append("UB")
+
+    # Pass the combined handles and labels to plt.legend
+    plt.legend(
+        handles=handles,
+        labels=labels,
+        title=r"$\epsilon$",
+        frameon=True,
+        fancybox=False,
+    )
+
+    # plt.axhline(y=1, color="tab:grey", linestyle="dashed")
     plt.xlabel("Std. dev. of the score distribution")
     plt.ylabel(r"$|\mathcal{R}_\epsilon^K|$")
+    # force 1 to be included in the Y-axis tick labels
+    locs, labels_y = plt.yticks()
+    ticks = [1.0] + [t for t in locs if t > 1.0]
+    plt.yticks(ticks)
+    plt.ylim(bottom=1)
     plt.gca().spines[["right", "top"]].set_visible(False)
+    plt.title(f"N={args.n}, K={args.k}")
+
+    if args.save:
+        plt.savefig(args.save)
+    plt.tight_layout()
+
     plt.show()
 
 
