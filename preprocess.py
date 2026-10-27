@@ -35,5 +35,29 @@ def compas(
     new.to_csv(out_csv)
 
 
+@app.command()
+def law_data(
+    src_csv: str = "data/law_data_raw.csv",
+    out_csv: str = "data/law_data_processed.csv",
+):
+    df = pd.read_csv(src_csv)
+    print(df)
+
+    new = pd.DataFrame()
+
+    # change score from higher the better to lower the better
+    new["score"] = 1 / df["LSAT"]
+
+    # make the categories binary
+    new["sex"] = pd.Categorical(df["sex"]).codes
+    new["race"] = pd.Categorical(df["race"] != "White").codes
+
+    # random shuffle
+    new = new.sample(frac=1)
+    print(new)
+
+    new.to_csv(out_csv)
+
+
 if __name__ == "__main__":
     app.cli()
