@@ -68,10 +68,10 @@ def main(
         pl.lpSum([lst_scores[i] * (1 - alpha[i]) for i in in_top_k])
         - pl.lpSum([lst_scores[j] * alpha[j] for j in out_top_k])
     ) <= eps
-    prob += (
-        pl.lpSum([lst_scores[i] * (1 - alpha[i]) for i in in_top_k])
-        - pl.lpSum([lst_scores[j] * alpha[j] for j in out_top_k])
-    ) >= 0
+    # prob += (
+    #     pl.lpSum([lst_scores[i] * (1 - alpha[i]) for i in in_top_k])
+    #     - pl.lpSum([lst_scores[j] * alpha[j] for j in out_top_k])
+    # ) >= 0
 
     # >>> Constr. (3)
     # this is the variable `a` in the paper
@@ -97,7 +97,10 @@ def main(
 
     #
     # ---- Process the solution ---- #
-    alpha_values = [int(var.varValue) for var in alpha.values()]  # ty: ignore[invalid-argument-type]
+    #
+
+    alpha_values = [int(pl.value(alpha[i]) > 0.5) for i in individuals]
+    # alpha_values = [int(var.varValue) for var in alpha.values()]  # ty: ignore[invalid-argument-type]
     delta_plus_values = [var.varValue for var in delta_plus.values()]
     delta_minus_values = [var.varValue for var in delta_minus.values()]
 
