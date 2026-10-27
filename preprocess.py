@@ -59,5 +59,74 @@ def law_data(
     new.to_csv(out_csv)
 
 
+@app.command()
+def astronauts(
+    src_csv: str = "data/astronauts.csv",
+    out_csv: str = "data/astronauts_processed.csv",
+):
+    df = pd.read_csv(src_csv)
+    print(df)
+
+    new = pd.DataFrame()
+
+    # change score from higher the better to lower the better
+    new["score"] = 1 / (df["Space Flight (hr)"] + 1)
+
+    # make the categories binary
+    new["sex"] = pd.Categorical(df["Gender"]).codes
+
+    # random shuffle
+    new = new.sample(frac=1)
+    print(new)
+
+    new.to_csv(out_csv)
+
+
+@app.command()
+def sat(
+    src_csv: str = "data/satgpa.csv",
+    out_csv: str = "data/satgpa_processed.csv",
+):
+    df = pd.read_csv(src_csv)
+    print(df)
+
+    new = pd.DataFrame()
+
+    # change score from higher the better to lower the better
+    new["score"] = 1 / df["sat_sum"]
+
+    # make the categories binary
+    new["sex"] = pd.Categorical(df["sex"]).codes
+
+    # random shuffle
+    new = new.sample(frac=1)
+    print(new)
+
+    new.to_csv(out_csv)
+
+
+@app.command()
+def hmda(
+    src_csv: str = "data/hmda.csv",
+    out_csv: str = "data/hmda_processed.csv",
+):
+    df = pd.read_csv(src_csv)
+
+    new = pd.DataFrame()
+
+    # normalize and change score from higher the better to lower the better
+    s = df["loan_amount"]
+    new["score"] = 1 - ((s - s.min()) / (s.max() - s.min()))
+
+    # make the categories binary
+    new["sex"] = pd.Categorical(df["applicant_sex"]).codes
+    new["race"] = pd.Categorical(df["derived_race"] != "White").codes
+
+    # random shuffle
+    new = new.sample(frac=1)
+
+    new.to_csv(out_csv)
+
+
 if __name__ == "__main__":
     app.cli()
