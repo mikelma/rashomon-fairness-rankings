@@ -12,7 +12,10 @@ app = SubcommandApp()
 
 @app.command
 def lp_results(
-    dataset: str = "german.csv", sens_attr: str = "sex", font_size: int = 16
+    dataset: str = "german.csv",
+    sens_attr: str = "sex",
+    font_size: int = 16,
+    save: bool = False,
 ):
     matplotlib.rcParams.update(
         {
@@ -34,23 +37,6 @@ def lp_results(
     )
     df["improvement"] = 100 * ((target - bayes).abs() - (target - new).abs()) / target
 
-    print(
-        df[df["improvement"] < 0][
-            [
-                "k",
-                "n",
-                "eps",
-                "bayes group ratio",
-                "new group ratio",
-                "target group ratio",
-                "improvement",
-            ]
-        ]
-    )
-
-    # df = df[(df["eps"] == 1)]
-    # df = df[(df["k"] > 10)]
-
     sns.lineplot(
         data=df,
         x="k",
@@ -58,39 +44,23 @@ def lp_results(
         hue="eps",
         palette=sns.color_palette("tab10"),
         linewidth=3,
-        alpha=0.7,
+        # alpha=0.7,
         style="eps",
         markers=True,
-        markersize=10,
+        markersize=14,
     )
-
-    # for eps in df["eps"].unique():
-    #     sel = df[df["eps"] == eps]
-    #     g = plt.plot(
-    #         sel["k"], sel["new group ratio"], label=eps, linewidth=3, alpha=0.6
-    #     )
-    #     c = g[0].get_color()
-    #     plt.plot(sel["k"], sel["bayes group ratio"], color=c, linestyle="dashed")
-    #     plt.plot(sel["k"], sel["target group ratio"], color=c, linestyle="dotted")
-
-    plt.legend()
+    # plt.legend()
 
     plt.xlabel("K")
     plt.ylabel("Fairness improvement (\\%)")
     plt.gca().spines[["right", "top"]].set_visible(False)
+    plt.tight_layout()
+
+    if save:
+        name = dataset.split("/")[-1].split(".")[0]
+        plt.savefig(f"figures/lp/{name}_{sens_attr}.pdf")
+
     plt.show()
-
-    # target_ratio = df["target group ratio"].values[0]
-
-    # for eps in df["eps"].unique():
-    #     sel = df[df["eps"] == eps]
-    #     g = plt.plot(
-    #         sel["k"], sel["new group ratio"], label=eps, linewidth=3, alpha=0.6
-    #     )
-    #     c = g[0].get_color()
-    #     plt.plot(sel["k"], sel["bayes group ratio"], color=c, linestyle="dashed")
-    # plt.axhline(y=target_ratio, color="tab:gray", linewidth=2, linestyle="dotted")
-    # plt.show()
 
 
 @app.command
@@ -100,6 +70,7 @@ def score_distrib(
     sens_attr: str = "sex",
     n: Optional[int] = None,
     font_size: int = 16,
+    save_dir: Optional[str] = None,
 ):
     matplotlib.rcParams.update(
         {
@@ -126,12 +97,14 @@ def score_distrib(
     groups = df[sens_attr][:n].values
     # colors = cols[(groups == 1).astype(int)]
 
-    # plt.bar(np.arange(n), lst_scores[ranking], color=colors[ranking])
-    # custom_lines = [Line2D([0], [0], color=c) for c in cols]
-    # plt.legend(custom_lines, range(len(colors)), title=sens_attr)
-    plt.plot(np.arange(n), lst_scores[ranking])
-    plt.ylabel("Score")
-    plt.show()
+    fig, axs = plt.subplots(1, 3, figsize=(12, 5))
+
+    for ax in axs:
+        ax.spines[["right", "top"]].set_visible(False)
+
+    axs[0].plot(np.arange(n), lst_scores[ranking])
+    axs[0].set_ylabel("Score")
+    axs[0].set_xlabel("Individual (sorted)")
 
     ratios = []
     ordered_groups = groups[ranking]
@@ -141,12 +114,13 @@ def score_distrib(
 
     tgt_ratio = groups.mean()
 
-    plt.plot(100 * ks / n, ratios)
-    plt.axhline(y=tgt_ratio, linestyle="dashed", color="tab:gray", label="True ratio")
-    plt.xlabel("K (\\%)")
-    plt.ylabel("Group 1 ratio")
-    plt.legend()
-    plt.show()
+    axs[1].plot(100 * ks / n, ratios)
+    axs[1].axhline(
+        y=tgt_ratio, linestyle="dashed", color="tab:gray", label="True ratio"
+    )
+    axs[1].set_xlabel("K (\\%)")
+    axs[1].set_ylabel("Group 1 ratio")
+    axs[1].legend()
 
     grouped_scores = []
     for group in np.unique(groups):
@@ -163,9 +137,14 @@ def score_distrib(
         dfs.append(df)
 
     df = pd.concat(dfs)
-    g = sns.kdeplot(data=df, x="score", hue="group")
+    sns.kdeplot(data=df, x="score", hue="group", ax=axs[2])
 
-    print(g)
+    plt.tight_layout()
+
+    if save_dir is not None:
+        name = dataset.split("/")[-1].split("_")[0]
+        plt.savefig(f"{save_dir}/{name}_{sens_attr}.pdf")
+
     plt.show()
 
 
