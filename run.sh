@@ -101,7 +101,7 @@ for k in $lst_k; do
     for sens_attr in ${sens_attrs[@]}; do
       fname="logs/hdma_${k}_${sens_attr}_eps${eps}.csv"
       echo "$base_cmd --k $k --n $N --sens-attr $sens_attr --score-attr score --eps $eps --dataset data/hmda_processed.csv --save-csv $fname"
-      bash -c "timeout 15s $base_cmd --k $k --n $N --sens-attr $sens_attr --score-attr score --eps $eps --dataset data/hmda_processed.csv --save-csv $fname"
+      bash -c "timeout 10s $base_cmd --k $k --n $N --sens-attr $sens_attr --score-attr score --eps $eps --dataset data/hmda_processed.csv --save-csv $fname" || true
       id=$((id + 1))
     done
   done

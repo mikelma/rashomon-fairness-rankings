@@ -2,6 +2,8 @@ import tyro
 import jax
 import jax.numpy as jnp
 from jax.scipy.special import comb
+from jax.scipy.stats.norm import ppf as normal_ppf
+from jax.scipy.stats.norm import pdf as normal_pdf
 import matplotlib.pyplot as plt
 import matplotlib
 from dataclasses import dataclass, field
@@ -25,7 +27,9 @@ class Args:
     max_std: float = 10.0
     num_std: int = 10
 
-    bounds: bool = False
+    approx_bounds: bool = False
+    normal_bounds: bool = False
+
     font_size: int = 16
     save: Optional[str] = None
 
@@ -95,6 +99,24 @@ def size_bound(scores: jax.Array, eps: float, k: int):
     return result
 
 
+def size_normal_bound(n: int, var: float, eps: float, k: int):
+    def _combs(m):
+        frac = (n * eps) / (m * var)
+        rexp = 1 - jnp.exp(
+            -frac * normal_pdf(normal_ppf(1 - k / n, scale=var), scale=var)
+        )
+        return comb(k, m) * comb(n - k, m) * rexp
+
+    kk = jnp.arange(1, k + 1)
+    vv = jax.vmap(_combs)(kk)
+
+    stop = jnp.minimum(k, n - k)
+    # TODO is this < or <= ?
+    result = 1 + jnp.where(kk < stop, vv, 0).sum()
+
+    return result
+
+
 def main():
     args = tyro.cli(Args)
 
@@ -124,8 +146,6 @@ def main():
         all_top_ks=all_top_k,
         n=args.n,
     )
-    print(batched_sizes.shape)
-
     batched_means = batched_sizes.mean(-1)
     batched_stds = batched_sizes.std(-1)
 
@@ -140,10 +160,11 @@ def main():
         bounds = bounds.reshape(*scores.shape[:2])
         return bounds
 
-    # dims: (num_eps, num_std, num_samples)
-    batched_bounds = jax.vmap(_batched_bound_compute)(batched_epsilon)
-    bounds_means = batched_bounds.mean(-1)
-    bounds_stds = batched_bounds.std(-1)
+    def _batched_normal_bound(eps):
+        bounds = jax.vmap(size_normal_bound, in_axes=(None, 0, None, None))(
+            args.n, std, eps, args.k
+        )
+        return bounds
 
     matplotlib.rcParams.update(
         {
@@ -159,8 +180,6 @@ def main():
         std_dev = batched_stds[i]
         eps = batched_epsilon[i]
 
-        bound = bounds_means[i]
-
         line = plt.plot(std, mean, label=f"{round(float(eps), 2)}", linewidth=2)
         plt.fill_between(
             std,
@@ -169,18 +188,43 @@ def main():
             alpha=0.3,
         )
 
-        if args.bounds:
+        if args.approx_bounds:
+            # dims: (num_eps, num_std, num_samples)
+            batched_bounds = jax.vmap(_batched_bound_compute)(batched_epsilon)
+            # bounds_stds = batched_bounds.std(-1)
+            bounds_approx = batched_bounds.mean(-1)
             plt.plot(
-                std, bound, linestyle="dashed", color=line[0].get_color(), linewidth=1.5
+                std,
+                bounds_approx[i],
+                linestyle="dashed",
+                color=line[0].get_color(),
+                linewidth=2,
+            )
+        if args.normal_bounds:
+            bounds_normal = jax.vmap(_batched_normal_bound)(batched_epsilon)
+            plt.plot(
+                std,
+                bounds_normal[i],
+                linestyle="dotted",
+                color=line[0].get_color(),
+                linewidth=2,
             )
 
-    # add the upper entry to the legend
-    ub_handle = matplotlib.lines.Line2D(
-        [], [], color="black", linestyle="dashed", linewidth=1.5, label="UB"
-    )
     handles, labels = plt.gca().get_legend_handles_labels()
-    handles.append(ub_handle)
-    labels.append("UB")
+    if args.approx_bounds:
+        # add the upper entry to the legend
+        ub_handle = matplotlib.lines.Line2D(
+            [], [], color="black", linestyle="dashed", linewidth=1.5, label="UB"
+        )
+        handles.append(ub_handle)
+        labels.append("UB approx")
+    if args.normal_bounds:
+        # add the upper entry to the legend
+        ub_handle = matplotlib.lines.Line2D(
+            [], [], color="black", linestyle="dotted", linewidth=1.5, label="UB"
+        )
+        handles.append(ub_handle)
+        labels.append("UB normal")
 
     # Pass the combined handles and labels to plt.legend
     plt.legend(
