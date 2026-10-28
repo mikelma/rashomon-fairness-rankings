@@ -29,6 +29,7 @@ class Args:
 
     approx_bounds: bool = False
     normal_bounds: bool = False
+    linear_bounds: bool = False
 
     font_size: int = 16
     save: Optional[str] = None
@@ -99,11 +100,11 @@ def size_bound(scores: jax.Array, eps: float, k: int):
     return result
 
 
-def size_normal_bound(n: int, var: float, eps: float, k: int):
+def size_normal_bound(n: int, std: float, eps: float, k: int):
     def _combs(m):
-        frac = (n * eps) / (m * var)
+        frac = (n * eps) / (m * std)
         rexp = 1 - jnp.exp(
-            -frac * normal_pdf(normal_ppf(1 - k / n, scale=var), scale=var)
+            -frac * normal_pdf(normal_ppf(1 - k / n, scale=std), scale=std)
         )
         return comb(k, m) * comb(n - k, m) * rexp
 
@@ -111,7 +112,21 @@ def size_normal_bound(n: int, var: float, eps: float, k: int):
     vv = jax.vmap(_combs)(kk)
 
     stop = jnp.minimum(k, n - k)
-    # TODO is this < or <= ?
+    result = 1 + jnp.where(kk < stop, vv, 0).sum()
+
+    return result
+
+
+def size_linear_bound(n: int, std: float, eps: float, k: int):
+    def _combs(m):
+        frac = (n * eps) / (m * std)
+        rexp = frac * normal_pdf(normal_ppf(1 - (k / n), scale=std), scale=std)
+        return comb(k, m) * comb(n - k, m) * rexp
+
+    kk = jnp.arange(1, k + 1)
+    vv = jax.vmap(_combs)(kk)
+
+    stop = jnp.minimum(k, n - k)
     result = 1 + jnp.where(kk < stop, vv, 0).sum()
 
     return result
@@ -166,6 +181,12 @@ def main():
         )
         return bounds
 
+    def _batched_linear_bound(eps):
+        bounds = jax.vmap(size_linear_bound, in_axes=(None, 0, None, None))(
+            args.n, std, eps, args.k
+        )
+        return bounds
+
     matplotlib.rcParams.update(
         {
             "font.size": args.font_size,
@@ -209,6 +230,15 @@ def main():
                 color=line[0].get_color(),
                 linewidth=2,
             )
+        if args.linear_bounds:
+            bounds_normal = jax.vmap(_batched_linear_bound)(batched_epsilon)
+            plt.plot(
+                std,
+                bounds_normal[i],
+                linestyle="dashdot",
+                color=line[0].get_color(),
+                linewidth=2,
+            )
 
     handles, labels = plt.gca().get_legend_handles_labels()
     if args.approx_bounds:
@@ -225,6 +255,13 @@ def main():
         )
         handles.append(ub_handle)
         labels.append("UB normal")
+    if args.linear_bounds:
+        # add the upper entry to the legend
+        ub_handle = matplotlib.lines.Line2D(
+            [], [], color="black", linestyle="dashdot", linewidth=1.5, label="UB"
+        )
+        handles.append(ub_handle)
+        labels.append("UB linear")
 
     # Pass the combined handles and labels to plt.legend
     plt.legend(
