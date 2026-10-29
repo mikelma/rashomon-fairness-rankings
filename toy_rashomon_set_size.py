@@ -31,6 +31,8 @@ class Args:
     normal_bounds: bool = False
     linear_bounds: bool = False
 
+    legend: bool = True
+
     font_size: int = 16
     save: Optional[str] = None
 
@@ -112,7 +114,7 @@ def size_normal_bound(n: int, std: float, eps: float, k: int):
     vv = jax.vmap(_combs)(kk)
 
     stop = jnp.minimum(k, n - k)
-    result = 1 + jnp.where(kk < stop, vv, 0).sum()
+    result = 1 + jnp.where(kk <= stop, vv, 0).sum()
 
     return result
 
@@ -127,7 +129,7 @@ def size_linear_bound(n: int, std: float, eps: float, k: int):
     vv = jax.vmap(_combs)(kk)
 
     stop = jnp.minimum(k, n - k)
-    result = 1 + jnp.where(kk < stop, vv, 0).sum()
+    result = 1 + jnp.where(kk <= stop, vv, 0).sum()
 
     return result
 
@@ -196,12 +198,24 @@ def main():
         }
     )
 
+    markers = ["o", "s", "^", "D", "v", "p", "*", "h", "+", "x"]
+    marker_step = max(1, len(std) // 4)
+    markersize = 10
     for i in range(args.num_eps):
         mean = batched_means[i]
         std_dev = batched_stds[i]
         eps = batched_epsilon[i]
 
-        line = plt.plot(std, mean, label=f"{round(float(eps), 2)}", linewidth=2)
+        line = plt.plot(
+            std,
+            mean,
+            label=f"{round(float(eps), 2)}",
+            linewidth=2,
+            marker=markers[i % len(markers)],
+            markevery=marker_step,
+            markersize=markersize,
+            markeredgecolor="white",
+        )
         plt.fill_between(
             std,
             mean - std_dev,
@@ -220,6 +234,10 @@ def main():
                 linestyle="dashed",
                 color=line[0].get_color(),
                 linewidth=2,
+                marker=markers[i % len(markers)],
+                markevery=marker_step,
+                markersize=markersize,
+                markeredgecolor="white",
             )
         if args.normal_bounds:
             bounds_normal = jax.vmap(_batched_normal_bound)(batched_epsilon)
@@ -229,6 +247,10 @@ def main():
                 linestyle="dotted",
                 color=line[0].get_color(),
                 linewidth=2,
+                marker=markers[i % len(markers)],
+                markevery=marker_step,
+                markeredgecolor="white",
+                markersize=markersize,
             )
         if args.linear_bounds:
             bounds_normal = jax.vmap(_batched_linear_bound)(batched_epsilon)
@@ -238,6 +260,9 @@ def main():
                 linestyle="dashdot",
                 color=line[0].get_color(),
                 linewidth=2,
+                marker=markers[i % len(markers)],
+                markeredgecolor="white",
+                markersize=markersize,
             )
 
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -263,25 +288,26 @@ def main():
         handles.append(ub_handle)
         labels.append("UB linear")
 
-    # Pass the combined handles and labels to plt.legend
-    plt.legend(
-        handles=handles,
-        labels=labels,
-        title=r"$\epsilon$",
-        frameon=True,
-        fancybox=False,
-    )
+    if args.legend:
+        plt.legend(
+            handles=handles,
+            labels=labels,
+            title=r"$\epsilon$",
+            frameon=True,
+            fancybox=False,
+        )
 
-    # plt.axhline(y=1, color="tab:grey", linestyle="dashed")
-    plt.xlabel("Std. dev. of the score distribution")
-    plt.ylabel(r"$|\mathcal{R}_\epsilon^K|$")
+        plt.xlabel("Std. dev. of the score distribution")
+        plt.ylabel(r"$|\mathcal{R}_\epsilon^K|$")
+
     # force 1 to be included in the Y-axis tick labels
+    # plt.axhline(y=1, color="tab:grey", linestyle="dashed")
     locs, labels_y = plt.yticks()
     ticks = [1.0] + [t for t in locs if t > 1.0]
     plt.yticks(ticks)
     plt.ylim(bottom=1)
     plt.gca().spines[["right", "top"]].set_visible(False)
-    plt.title(f"N={args.n}, K={args.k}")
+    # plt.title(f"N={args.n}, K={args.k}")
 
     if args.save:
         plt.savefig(args.save)
