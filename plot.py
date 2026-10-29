@@ -16,6 +16,7 @@ def lp_results(
     sens_attr: str = "sex",
     font_size: int = 16,
     save: bool = False,
+    title: Optional[str] = None,
 ):
     matplotlib.rcParams.update(
         {
@@ -49,8 +50,10 @@ def lp_results(
         markers=True,
         markersize=14,
     )
-    # plt.legend()
+    plt.legend(title=r"$\epsilon$")
 
+    if title is not None:
+        plt.title(title)
     plt.xlabel("K")
     plt.ylabel("Fairness improvement (\\%)")
     plt.gca().spines[["right", "top"]].set_visible(False)
@@ -58,7 +61,7 @@ def lp_results(
 
     if save:
         name = dataset.split("/")[-1].split(".")[0]
-        plt.savefig(f"figures/lp/{name}_{sens_attr}.pdf")
+        plt.savefig(f"figures/lp/{name}_{sens_attr}.svg")
 
     plt.show()
 
