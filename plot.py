@@ -154,11 +154,7 @@ def score_distrib(
 
 @app.command
 def inestability(
-    dataset: str = "data/satgpa_processed.csv",
-    # score_attr: str = "score",
-    # sens_attr: str = "sex",
     k: int = 100,
-    # n: Optional[int] = None,
     font_size: int = 16,
 ):
     matplotlib.rcParams.update(
@@ -171,13 +167,14 @@ def inestability(
     )
 
     experiments = [
-        ("data/law_data_processed.csv", "score", "sex"),
-        ("data/law_data_processed.csv", "score", "race"),
-        ("data/hmda_processed.csv", "score", "sex"),
-        ("data/hmda_processed.csv", "score", "race"),
-        ("data/compas-processed.csv", "score", "sex"),
-        ("data/compas-processed.csv", "score", "race"),
-        ("data/satgpa_processed.csv", "score", "sex"),
+        ("LawSAT", "data/law_data_processed.csv", "score", "sex"),
+        ("LawSAT", "data/law_data_processed.csv", "score", "race"),
+        ("HDMA", "data/hmda_processed.csv", "score", "sex"),
+        ("HDMA", "data/hmda_processed.csv", "score", "race"),
+        ("COMPAS", "data/compas-processed.csv", "score", "sex"),
+        ("COMPAS", "data/compas-processed.csv", "score", "race"),
+        ("SAT", "data/satgpa_processed.csv", "score", "sex"),
+        ("Astronauts", "data/astronauts_processed.csv", "score", "sex"),
     ]
 
     lst_eps = np.linspace(start=0, stop=1, num=1000)
@@ -195,49 +192,102 @@ def inestability(
         scores = 1 - scores
 
         ranking = np.argsort(-scores)
-        # groups = df[sens_attr][:n].values
+        groups = df[sens_attr][:n].values
 
-        top_k = ranking[:k]
-
-        y_k = scores[top_k[-1]]
+        y_k = scores[ranking[k - 1]]
+        y_k_plus_one = scores[ranking[k]]
 
         # the scores of individuals not in the top k
-        y_not_top = scores[ranking[k:]]
+        top = ranking[:k]
+        not_top = ranking[k:]
+
+        y_top = scores[top]
+        y_not_top = scores[not_top]
         cands = []
         for eps in lst_eps:
-            num_cand = (y_k - y_not_top <= eps).sum()
-            cands.append(num_cand)
+            mask_not_top = y_k - y_not_top <= eps
+            mask_top = y_top - y_k_plus_one <= eps
 
+            g1_top = groups[top]
+            g1_not_top = groups[not_top]
+
+            # p \in (0, 1)
+            g1_0_1 = (mask_not_top & g1_not_top).sum() + (mask_top & g1_top).sum()
+            g0_0_1 = (mask_not_top & ~g1_not_top).sum() + (mask_top & ~g1_top).sum()
+
+            # p = 1
+            g1_1 = (~mask_top & g1_top).sum()
+            g0_1 = (~mask_top & ~g1_top).sum()
+
+            # p = 0
+            g1_0 = (~mask_not_top & g1_not_top).sum()
+            g0_0 = (~mask_not_top & ~g1_not_top).sum()
+
+            # cands.append(
+            #     dict(
+            #         p_0_1=(g0_0_1, g1_0_1),
+            #         p_1=(g0_1, g1_1),
+            #         p_0=(g0_0, g1_0),
+            #     )
+            # )
+            cands.append(
+                (
+                    (g0_0_1, g1_0_1),
+                    (g0_1, g1_1),
+                    (g0_0, g1_0),
+                )
+            )
+
+        # dims: (num_eps, prob_classes, num_groups)
         cands = np.asarray(cands)
-        return 100 * cands / n
+        return cands, len(df), (groups == 0).sum()
 
-    markers = ["o", "s", "^", "D", "v", "p", "*", "h", "+", "x"]
-    marker_step = max(1, len(lst_eps) // 4)
-    markersize = 10
-    for i, (dataset, score_attr, sens_attr) in enumerate(experiments):
-        name = dataset.replace("-", "_").split("/")[-1].split("_")[0].title()
+    # markers = ["o", "s", "^", "D", "v", "p", "*", "h", "+", "x"]
+    # marker_step = max(1, len(lst_eps) // 4)
+    # markersize = 10
+
+    fig, axs = plt.subplots(2, 4, figsize=(15, 6))
+    axs = axs.flat
+
+    for id, (data_name, dataset, score_attr, sens_attr) in enumerate(experiments):
+        ax = axs[id]
+
+        # dims: (num_eps, prob_classes, num_groups)
+        result, n, num_group_0 = _compute_candidates(dataset, score_attr, sens_attr)
+        num_group_1 = n - num_group_0
+
+        labels = [r"$p \in (0, 1)$", r"$p = 1$", r"$p = 0$"]
+        for i, label in enumerate(labels):
+            group_0 = result[:, i, 0] / num_group_0
+            group_1 = result[:, i, 1] / num_group_1
+            line = ax.plot(
+                lst_eps,
+                group_0,
+                label=f"{label} (group 0)",
+                linewidth=2,
+            )
+            ax.plot(
+                lst_eps,
+                group_1,
+                linestyle="dashed",
+                label=f"{label} (group 1)",
+                color=line[0].get_color(),
+                linewidth=2,
+            )
+
+        ax.set_xscale("log")
+        # ax.set_yscale("log")
+        ax.spines[["right", "top"]].set_visible(False)
+
         sens = "gender" if sens_attr == "sex" else "ethnicity"
-        cands = _compute_candidates(dataset, score_attr, sens_attr)
-        plt.plot(
-            lst_eps,
-            cands,
-            label=f"{name} ({sens})",
-            linewidth=3,
-            marker=markers[i % len(markers)],
-            markevery=marker_step,
-            markersize=markersize,
-        )
+        ax.set_title(f"{data_name} ({sens})")
 
-    ax = plt.gca()
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.spines[["right", "top"]].set_visible(False)
+        if id == 0:
+            ax.legend()
+            ax.set_ylabel(r"\% of candidates per group")
+            ax.set_xlabel(r"$\epsilon$ (log)")
 
-    plt.legend()
-    plt.ylabel(r"Number of candidates (\%)")
-    plt.xlabel(r"$\epsilon$")
-
-    plt.tight_layout()
+    # plt.tight_layout()
     plt.show()
 
 
