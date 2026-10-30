@@ -3,6 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import matplotlib
+import matplotlib.ticker as mticker
 import numpy as np
 from typing import Optional
 from tyro.extras import SubcommandApp
@@ -148,6 +149,95 @@ def score_distrib(
         name = dataset.split("/")[-1].split("_")[0]
         plt.savefig(f"{save_dir}/{name}_{sens_attr}.pdf")
 
+    plt.show()
+
+
+@app.command
+def inestability(
+    dataset: str = "data/satgpa_processed.csv",
+    # score_attr: str = "score",
+    # sens_attr: str = "sex",
+    k: int = 100,
+    # n: Optional[int] = None,
+    font_size: int = 16,
+):
+    matplotlib.rcParams.update(
+        {
+            "font.size": font_size,
+            "font.family": "serif",
+            "text.usetex": True,
+            "pdf.fonttype": 42,
+        }
+    )
+
+    experiments = [
+        ("data/law_data_processed.csv", "score", "sex"),
+        ("data/law_data_processed.csv", "score", "race"),
+        ("data/hmda_processed.csv", "score", "sex"),
+        ("data/hmda_processed.csv", "score", "race"),
+        ("data/compas-processed.csv", "score", "sex"),
+        ("data/compas-processed.csv", "score", "race"),
+        ("data/satgpa_processed.csv", "score", "sex"),
+    ]
+
+    lst_eps = np.linspace(start=0, stop=1, num=1000)
+
+    def _compute_candidates(dataset, score_attr, sens_attr):
+        df = pd.read_csv(dataset)
+
+        print("* Number of individuals:", len(df))
+        print("* N =", len(df))
+        n = len(df)
+
+        # preprocessing
+        scores = df[score_attr][:n].values
+        scores = (scores - scores.min()) / (scores.max() - scores.min())
+        scores = 1 - scores
+
+        ranking = np.argsort(-scores)
+        # groups = df[sens_attr][:n].values
+
+        top_k = ranking[:k]
+
+        y_k = scores[top_k[-1]]
+
+        # the scores of individuals not in the top k
+        y_not_top = scores[ranking[k:]]
+        cands = []
+        for eps in lst_eps:
+            num_cand = (y_k - y_not_top <= eps).sum()
+            cands.append(num_cand)
+
+        cands = np.asarray(cands)
+        return 100 * cands / n
+
+    markers = ["o", "s", "^", "D", "v", "p", "*", "h", "+", "x"]
+    marker_step = max(1, len(lst_eps) // 4)
+    markersize = 10
+    for i, (dataset, score_attr, sens_attr) in enumerate(experiments):
+        name = dataset.replace("-", "_").split("/")[-1].split("_")[0].title()
+        sens = "gender" if sens_attr == "sex" else "ethnicity"
+        cands = _compute_candidates(dataset, score_attr, sens_attr)
+        plt.plot(
+            lst_eps,
+            cands,
+            label=f"{name} ({sens})",
+            linewidth=3,
+            marker=markers[i % len(markers)],
+            markevery=marker_step,
+            markersize=markersize,
+        )
+
+    ax = plt.gca()
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.spines[["right", "top"]].set_visible(False)
+
+    plt.legend()
+    plt.ylabel(r"Number of candidates (\%)")
+    plt.xlabel(r"$\epsilon$")
+
+    plt.tight_layout()
     plt.show()
 
 
