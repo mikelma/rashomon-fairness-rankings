@@ -101,13 +101,22 @@ def score_distrib(
     groups = df[sens_attr][:n].values
     # colors = cols[(groups == 1).astype(int)]
 
-    fig, axs = plt.subplots(1, 3, figsize=(12, 5))
+    # fig, axs = plt.subplots(1, 3, figsize=(12, 5))
+    fig, axs = plt.subplots(3, 1)
 
     for ax in axs:
         ax.spines[["right", "top"]].set_visible(False)
 
-    axs[0].plot(np.arange(n), lst_scores[ranking])
-    axs[0].set_ylabel("Score")
+    axs[0].plot(np.arange(n), lst_scores[ranking], color="tab:green", linewidth=2)
+    axs[0].fill_between(
+        np.arange(n),
+        np.zeros(n),
+        lst_scores[ranking],
+        color="tab:green",
+        alpha=0.3,
+    )
+
+    axs[0].set_ylabel("Normalized score")
     axs[0].set_xlabel("Individual (sorted)")
 
     ratios = []
@@ -118,13 +127,17 @@ def score_distrib(
 
     tgt_ratio = groups.mean()
 
-    axs[1].plot(100 * ks / n, ratios)
-    axs[1].axhline(
-        y=tgt_ratio, linestyle="dashed", color="tab:gray", label="True ratio"
+    axs[2].plot(100 * ks / n, ratios, color="tab:orange", linewidth=2)
+    axs[2].axhline(
+        y=tgt_ratio,
+        linestyle="dashed",
+        color="tab:gray",
+        label="True ratio",
+        linewidth=2,
     )
-    axs[1].set_xlabel("K (\\%)")
-    axs[1].set_ylabel("Group 1 ratio")
-    axs[1].legend()
+    axs[2].set_xlabel(r"K (\%)")
+    axs[2].set_ylabel(r"Group 1 ratio")
+    axs[2].legend()
 
     grouped_scores = []
     for group in np.unique(groups):
@@ -141,9 +154,11 @@ def score_distrib(
         dfs.append(df)
 
     df = pd.concat(dfs)
-    sns.kdeplot(data=df, x="score", hue="group", ax=axs[2])
+    sns.kdeplot(data=df, x="score", hue="group", ax=axs[1], linewidth=2)
+    axs[1].get_legend().set_title("Group")
+    axs[1].set_xlabel("Normalized score")
 
-    plt.tight_layout()
+    # plt.tight_layout()
 
     if save_dir is not None:
         name = dataset.split("/")[-1].split("_")[0]
