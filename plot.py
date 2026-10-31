@@ -258,8 +258,8 @@ def inestability(
 
         labels = [r"$p \in (0, 1)$", r"$p = 1$", r"$p = 0$"]
         for i, label in enumerate(labels):
-            group_0 = result[:, i, 0] / num_group_0
-            group_1 = result[:, i, 1] / num_group_1
+            group_0 = 100 * result[:, i, 0] / num_group_0
+            group_1 = 100 * result[:, i, 1] / num_group_1
             line = ax.plot(
                 lst_eps,
                 group_0,
