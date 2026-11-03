@@ -68,10 +68,6 @@ def main(
         pl.lpSum([lst_scores[i] * (1 - alpha[i]) for i in in_top_k])
         - pl.lpSum([lst_scores[j] * alpha[j] for j in out_top_k])
     ) <= eps
-    # prob += (
-    #     pl.lpSum([lst_scores[i] * (1 - alpha[i]) for i in in_top_k])
-    #     - pl.lpSum([lst_scores[j] * alpha[j] for j in out_top_k])
-    # ) >= 0
 
     # >>> Constr. (3)
     # this is the variable `a` in the paper
@@ -93,8 +89,6 @@ def main(
         mosek_solver.optionsDict = {}
         stats = prob.solve(mosek_solver)
 
-    # prob.writeLP("debug_model.lp")
-
     #
     # ---- Process the solution ---- #
     #
@@ -115,7 +109,6 @@ def main(
     if msg:
         print(stats)
 
-        # Print them as lists
         print(f"\nAlpha values:      {alpha_values}")
         print(f"Delta plus values: {delta_plus_values}")
         print(f"Delta minus values:{delta_minus_values}")
